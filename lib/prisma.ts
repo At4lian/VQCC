@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { env } from "./env";
 
 declare global {
@@ -6,7 +6,7 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
-const log = env.NODE_ENV === "development" ? ["warn", "error"] : ["error"];
+const log: Prisma.LogLevel[] = env.NODE_ENV === "development" ? ["warn", "error"] : ["error"];
 
 export const db = globalThis.prisma || new PrismaClient({ log });
 
