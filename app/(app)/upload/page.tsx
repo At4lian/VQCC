@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type UploadState =
   | "idle"
@@ -13,6 +15,17 @@ type UploadState =
   | "done"
   | "error"
   | "canceled";
+
+type CheckKey = "RESOLUTION" | "AVG_LOUDNESS" | "BITRATE" | "FPS";
+
+type AnalysisState = "idle" | "creating" | "queued" | "running" | "completed" | "failed";
+
+const CHECKS: { key: CheckKey; label: string; hint: string }[] = [
+  { key: "RESOLUTION", label: "Rozlišení", hint: "Zkontroluje width × height" },
+  { key: "FPS", label: "FPS", hint: "Zkontroluje snímkovou frekvenci" },
+  { key: "BITRATE", label: "Bitrate", hint: "Zkontroluje datový tok videa" },
+  { key: "AVG_LOUDNESS", label: "Průměrná hlasitost", hint: "EBU R128 / loudness (ffmpeg)" },
+];
 
 const CANCEL_MSG = "Upload canceled";
 
@@ -24,6 +37,16 @@ export default function UploadFilePage() {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // checkboxes (MVP default)
+  const [selectedChecks, setSelectedChecks] = useState<CheckKey[]>(["RESOLUTION", "FPS"]);
+
+  // analysis job UI
+  const [analysisState, setAnalysisState] = useState<AnalysisState>("idle");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [jobResultJson, setJobResultJson] = useState<any>(null);
+
   const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   // držíme videoId mimo React state, aby bylo okamžitě dostupné v catch/handlers
@@ -32,12 +55,27 @@ export default function UploadFilePage() {
   // rozlišení "uživatel klikl Cancel" vs. "něco upload abortnulo samo"
   const cancelRequestedRef = useRef(false);
 
+  const resetAnalysisUi = () => {
+    setAnalysisState("idle");
+    setJobId(null);
+    setJobStatus(null);
+    setJobError(null);
+    setJobResultJson(null);
+  };
+
   const resetLocalUi = () => {
     setState("idle");
     setProgress(0);
     setErrorMsg(null);
     cancelRequestedRef.current = false;
     videoIdRef.current = null;
+    resetAnalysisUi();
+  };
+
+  const toggleCheck = (key: CheckKey) => {
+    setSelectedChecks((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
   };
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -84,7 +122,6 @@ export default function UploadFilePage() {
     const videoId = videoIdRef.current;
     if (!videoId) return;
 
-    // best-effort: neblokuj UI, ignoruj chyby
     await fetch("/api/upload/fail", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,22 +141,50 @@ export default function UploadFilePage() {
   };
 
   const handleCancel = async () => {
-    // cancel může dávat smysl jen při uploadingu
     if (state !== "uploading") return;
 
     cancelRequestedRef.current = true;
 
-    // 1) Abort XHR
     if (xhrRef.current) {
       xhrRef.current.abort();
       xhrRef.current = null;
     }
 
-    // 2) Řekni backendu "cancel" (best-effort)
     await markCanceledBestEffort();
 
     setState("canceled");
     setErrorMsg(null);
+  };
+
+  const createAnalysisJob = async (videoId: string) => {
+    if (selectedChecks.length === 0) {
+      throw new Error("Vyber alespoň jednu kontrolu.");
+    }
+
+    setAnalysisState("creating");
+    setJobError(null);
+    setJobResultJson(null);
+
+    const res = await fetch("/api/analyses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoId, checks: selectedChecks }),
+    });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      throw new Error(j?.error ?? `Failed to create analysis job (${res.status})`);
+    }
+
+    const j = await res.json();
+    const id = j?.job?.id as string | undefined;
+    const status = j?.job?.status as string | undefined;
+
+    if (!id) throw new Error("Analysis job created but no jobId returned.");
+
+    setJobId(id);
+    setJobStatus(status ?? "QUEUED");
+    setAnalysisState(status === "RUNNING" ? "running" : "queued");
   };
 
   const handleSend = async () => {
@@ -131,9 +196,10 @@ export default function UploadFilePage() {
 
     cancelRequestedRef.current = false;
     videoIdRef.current = null;
+    resetAnalysisUi();
 
     try {
-      // 1) init -> získej presigned POST
+      // 1) init -> presigned POST
       const initRes = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,7 +226,6 @@ export default function UploadFilePage() {
       const formData = new FormData();
       for (const [k, v] of Object.entries(fields)) formData.append(k, v as string);
 
-      // pokud backend nepřidal Content-Type do fields, přidej ho ty (ale jen jednou)
       if (!("Content-Type" in fields) && selectedFile.type) {
         formData.append("Content-Type", selectedFile.type);
       }
@@ -180,7 +245,6 @@ export default function UploadFilePage() {
         };
 
         xhr.onload = () => {
-          // S3 presigned POST často vrací 204 nebo 201
           if (xhr.status === 201 || xhr.status === 204) resolve();
           else reject(new Error(`S3 upload failed (${xhr.status}): ${xhr.responseText}`));
         };
@@ -194,7 +258,7 @@ export default function UploadFilePage() {
       xhrRef.current = null;
       setProgress(100);
 
-      // 3) complete -> DB status UPLOADED (tady už backend dělá HeadObject verifikaci)
+      // 3) complete -> ověření HeadObject + DB
       setState("completing");
 
       const completeRes = await fetch("/api/upload/complete", {
@@ -208,24 +272,23 @@ export default function UploadFilePage() {
         throw new Error(j?.error ?? `Complete failed (${completeRes.status})`);
       }
 
+      // 4) vytvoř analysis job (FÁZE 1/2: DB + enqueue do SQS)
+      await createAnalysisJob(videoId);
+
       setState("done");
-      // po úspěchu vyčisti ref, ať se omylem nepošle fail
       videoIdRef.current = null;
       cancelRequestedRef.current = false;
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
 
-      // pokud to bylo explicitní zrušení
       if (message === CANCEL_MSG || cancelRequestedRef.current) {
         setState("canceled");
         setErrorMsg(null);
-        // cancel endpoint už voláme v handleCancel; kdyby k abortu došlo jinak, zkus i tak cancel
         await markCanceledBestEffort();
         return;
       }
 
-      // jinak je to fail -> zapiš do DB (best-effort)
       await markFailedBestEffort(message);
 
       setState("error");
@@ -235,8 +298,7 @@ export default function UploadFilePage() {
     }
   };
 
-  // Best-effort: když uživatel zavře tab / refreshne stránku během uploadu,
-  // zkusíme "fail" poslat přes sendBeacon (není garantované, ale pomáhá).
+  // Best-effort: když uživatel zavře tab / refreshne stránku během uploadu
   useEffect(() => {
     const onPageHide = () => {
       const videoId = videoIdRef.current;
@@ -249,7 +311,6 @@ export default function UploadFilePage() {
           reason: "Page closed during upload",
         });
 
-        // sendBeacon posílá POST a snaží se doručit i při zavírání stránky
         navigator.sendBeacon(
           "/api/upload/fail",
           new Blob([payload], { type: "application/json" })
@@ -263,6 +324,41 @@ export default function UploadFilePage() {
     return () => window.removeEventListener("pagehide", onPageHide);
   }, [state]);
 
+  // Poll job status (FÁZE 1: pouze DB; FÁZE 3: worker bude měnit statusy)
+useEffect(() => {
+  if (!jobId) return;
+
+  let stopped = false;
+
+  const tick = async () => {
+    if (stopped) return;
+
+    const res = await fetch(`/api/analyses/${jobId}`, { cache: "no-store" });
+    if (!res.ok) return;
+
+    const j = await res.json();
+    const s = j?.job?.status as string | undefined;
+
+    setJobStatus(s ?? null);
+    setJobError(j?.job?.errorMessage ?? null);
+    setJobResultJson(j?.job?.resultJson ?? null);
+
+    if (s === "COMPLETED" || s === "FAILED") {
+      stopped = true;
+      clearInterval(interval);
+    }
+  };
+
+  tick();
+  const interval = window.setInterval(tick, 1500);
+
+  return () => {
+    stopped = true;
+    clearInterval(interval);
+  };
+}, [jobId]);
+
+
   const statusLabel = (() => {
     switch (state) {
       case "idle":
@@ -272,7 +368,7 @@ export default function UploadFilePage() {
       case "uploading":
         return `Nahrávám… ${progress}%`;
       case "completing":
-        return "Ověřuji upload a ukládám stav…";
+        return "Ověřuji upload…";
       case "done":
         return "Hotovo ✅";
       case "canceled":
@@ -282,50 +378,92 @@ export default function UploadFilePage() {
     }
   })();
 
-  const isBusy = state === "preparing" || state === "uploading" || state === "completing";
+  const analysisLabel = (() => {
+    if (!jobId) return "—";
+    if (analysisState === "creating") return "Vytvářím job…";
+    if (analysisState === "queued") return "Ve frontě (QUEUED)";
+    if (analysisState === "running") return "Zpracovává se (RUNNING)";
+    if (analysisState === "completed") return "Dokončeno (COMPLETED)";
+    if (analysisState === "failed") return "Selhalo (FAILED)";
+    return jobStatus ?? "—";
+  })();
+
+  const isBusyUpload = state === "preparing" || state === "uploading" || state === "completing";
+  const isBusy = isBusyUpload || analysisState === "creating";
+  const canSend = !!selectedFile && selectedChecks.length > 0 && !isBusy;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-8 gap-8">
-      <h1 className="text-2xl font-bold">Upload Video</h1>
+      <h1 className="text-2xl font-bold">Upload & Analyze</h1>
 
-      <div className="w-full max-w-md space-y-2">
-        <Label>Upload a file</Label>
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`
-            relative border-2 border-dashed rounded-lg h-32 flex items-center justify-center text-center cursor-pointer
-            transition-colors duration-200
-            ${isDragging ? "border-primary bg-primary/10" : "border-muted-foreground/25 hover:border-primary/50"}
-            ${isBusy ? "opacity-60 pointer-events-none" : ""}
-          `}
-          onClick={() => document.getElementById("file-input")?.click()}
-        >
-          {selectedFile && (
-            <button
-              onClick={handleClearFile}
-              className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors"
-              aria-label="Remove file"
-            >
-              ✕
-            </button>
-          )}
-          <input id="file-input" type="file" className="hidden" onChange={handleFileSelect} />
-          {selectedFile ? (
-            <p className="text-lg font-medium truncate max-w-[90%] px-4">{selectedFile.name}</p>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-lg font-medium">Drag and drop a file here</p>
-              <p className="text-sm text-muted-foreground">or click to browse</p>
-            </div>
-          )}
+      <div className="w-full max-w-md space-y-4">
+        {/* DROPZONE */}
+        <div className="space-y-2">
+          <Label>Upload a file</Label>
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`
+              relative border-2 border-dashed rounded-lg h-32 flex items-center justify-center text-center cursor-pointer
+              transition-colors duration-200
+              ${isDragging ? "border-primary bg-primary/10" : "border-muted-foreground/25 hover:border-primary/50"}
+              ${isBusyUpload ? "opacity-60 pointer-events-none" : ""}
+            `}
+            onClick={() => document.getElementById("file-input")?.click()}
+          >
+            {selectedFile && (
+              <button
+                onClick={handleClearFile}
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full transition-colors"
+                aria-label="Remove file"
+              >
+                ✕
+              </button>
+            )}
+            <input id="file-input" type="file" className="hidden" onChange={handleFileSelect} />
+            {selectedFile ? (
+              <p className="text-lg font-medium truncate max-w-[90%] px-4">{selectedFile.name}</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-lg font-medium">Drag and drop a file here</p>
+                <p className="text-sm text-muted-foreground">or click to browse</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Status + progress */}
-        <div className="mt-4 space-y-2">
+        {/* CHECKBOXES */}
+        <div className="space-y-2">
+          <Label>Co zkontrolovat</Label>
+          <div className={`space-y-2 rounded-lg border p-4 ${isBusy ? "opacity-60" : ""}`}>
+            {CHECKS.map((c) => (
+              <label key={c.key} className="flex items-start gap-3 cursor-pointer select-none">
+                <Checkbox
+                  checked={selectedChecks.includes(c.key)}
+                  disabled={isBusy}
+                  onCheckedChange={(v) => {
+                    // shadcn může poslat boolean nebo "indeterminate"
+                    if (v === "indeterminate") return;
+                    toggleCheck(c.key);
+                  }}
+                />
+                <div className="flex flex-col">
+                  <span className="font-medium">{c.label}</span>
+                  <span className="text-sm text-muted-foreground">{c.hint}</span>
+                </div>
+              </label>
+            ))}
+            {selectedChecks.length === 0 && (
+              <p className="text-sm text-red-600 mt-2">Vyber alespoň jednu kontrolu.</p>
+            )}
+          </div>
+        </div>
+
+        {/* UPLOAD STATUS + PROGRESS */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Stav</span>
+            <span className="text-muted-foreground">Upload</span>
             <span>{statusLabel}</span>
           </div>
 
@@ -335,22 +473,49 @@ export default function UploadFilePage() {
 
           {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
         </div>
-      </div>
 
-      <div className="flex gap-3">
-        <Button onClick={handleSend} disabled={!selectedFile || isBusy} size="lg" className="px-10">
-          Send
-        </Button>
+        {/* JOB STATUS */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Analýza</span>
+            <span>{analysisLabel}</span>
+          </div>
 
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleCancel}
-          disabled={state !== "uploading"}
-          size="lg"
-        >
-          Cancel
-        </Button>
+          {jobId && (
+            <div className="text-xs text-muted-foreground flex items-center justify-between">
+              <span>Job ID</span>
+              <span className="font-mono">{jobId}</span>
+            </div>
+          )}
+
+          {jobError && <p className="text-sm text-red-600">{jobError}</p>}
+
+          {jobResultJson && (
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm">Výsledek (JSON)</summary>
+              <pre className="mt-2 text-xs overflow-auto whitespace-pre-wrap">
+                {JSON.stringify(jobResultJson, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+
+        {/* ACTIONS */}
+        <div className="flex gap-3">
+          <Button onClick={handleSend} disabled={!canSend} size="lg" className="flex-1">
+            Upload & Analyze
+          </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleCancel}
+            disabled={state !== "uploading"}
+            size="lg"
+          >
+            Cancel
+          </Button>
+        </div>
       </div>
     </div>
   );

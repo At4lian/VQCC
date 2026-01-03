@@ -35,3 +35,11 @@ export const apiAuthPrefix = '/api/auth'
  */
 export const DEFAULT_LOGIN_REDIRECT = '/upload'
 
+
+export const apiPublicPrefixes = [
+  "/api/internal",      // worker token auth
+  "/api/upload",        // (pokud chceš vyjmout z middleware – optional)
+  "/api/analyses",      // (optional)
+];
+
+

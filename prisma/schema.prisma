@@ -26,6 +26,7 @@ model User {
   accounts              Account[]
   TwoFactorConfirmation TwoFactorConfirmation?
 
+  analysisJobs          AnalysisJob[]
   videoAssets           VideoAsset[]
 
   @@map("users")
@@ -128,6 +129,9 @@ model VideoAsset {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  analysisJobs     AnalysisJob[]
+
+
   @@index([userId, createdAt])
   @@map("video_assets")
 }
@@ -143,3 +147,47 @@ model RateLimitWindow {
   @@index([windowStart])
   @@map("rate_limit_windows")
 }
+
+
+
+/* ANALYSIS PHASE */
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum QCCheck {
+  RESOLUTION
+  AVG_LOUDNESS
+  BITRATE
+  FPS
+}
+
+
+model AnalysisJob {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  videoAssetId  String    @map("video_asset_id")
+
+  status        JobStatus @default(QUEUED)
+  requested     QCCheck[] @map("requested_checks")
+
+  resultJson    Json?     @map("result_json")
+  errorMessage  String?   @db.Text @map("error_message")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  startedAt     DateTime? @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoAsset VideoAsset @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("analysis_jobs")
+}
+

@@ -6,7 +6,11 @@ import {
   apiAuthPrefix,
   authRoutes,
   publicRoutes,
+  apiPublicPrefixes,
 } from '@/routes'
+
+
+
 
 const { auth } = NextAuth(authConfig)
  
@@ -36,6 +40,14 @@ export default auth((req) => {
     }
     return
   }
+
+  const isApiPublic = apiPublicPrefixes.some((p) => nextUrl.pathname.startsWith(p));
+
+  if (isApiAuthRoute || isApiPublic) {
+    return;
+  }
+
+
   
   if (!isLoggedIn && !isPublicRoute) {
     let callbackUrl = nextUrl.pathname
