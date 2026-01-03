@@ -6,7 +6,7 @@ declare global {
   var prisma: PrismaClient | undefined
 }
 
-const logLevels: Prisma.PrismaClientOptions['log'] =
+const logLevels: Prisma.LogLevel[] =
   env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']
 
 export const db = globalThis.prisma || new PrismaClient({
