@@ -32,7 +32,12 @@ export async function register(values: RegisterSchema) {
   })
 
   const verificationToken = await generateVerificationToken(email)
-  await sendVerificationEmail(verificationToken.email, verificationToken.token)
+  try {
+    await sendVerificationEmail(verificationToken.email, verificationToken.token)
+  } catch (error) {
+    console.error('Failed to send verification email:', error)
+    return { error: 'Failed to send verification email!' }
+  }
 
   return { success: 'Confirmation email sent!' }
 }

@@ -26,6 +26,8 @@ model User {
   accounts              Account[]
   TwoFactorConfirmation TwoFactorConfirmation?
 
+  videoAssets           VideoAsset[]
+
   @@map("users")
 }
 
@@ -87,4 +89,53 @@ model TwoFactorConfirmation {
 
   @@unique([userId])
   @@map("two_factor_confimation")
+}
+
+
+
+
+/* S3 UPLOAD PHASE */
+
+enum UploadStatus {
+  CREATED
+  UPLOADING
+  UPLOADED
+  FAILED
+  DELETED
+}
+
+model VideoAsset {
+  id               String       @id @default(cuid())
+  userId           String       @map("user_id")
+
+  originalFileName String       @map("original_file_name")
+  contentType      String       @map("content_type")
+  fileSizeBytes    BigInt?      @map("file_size_bytes")
+
+  storageBucket    String       @map("storage_bucket")
+  storageKey       String       @unique @map("storage_key")
+
+  etag             String?      @map("etag")
+
+  status           UploadStatus @default(CREATED)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  uploadedAt       DateTime?    @map("uploaded_at")
+
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("video_assets")
+}
+
+
+model RateLimitWindow {
+  key         String
+  windowStart DateTime @map("window_start")
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+  @@map("rate_limit_windows")
 }
