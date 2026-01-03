@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { Suspense, useState, useTransition } from "react"
 import { useForm } from "react-hook-form"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
@@ -25,6 +25,14 @@ import { FormError } from "./form-error"
 import { FormSuccess } from "./form-success"
 
 export function LoginForm() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <LoginFormContent />
+    </Suspense>
+  )
+}
+
+function LoginFormContent() {
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get("callbackUrl")
   const urlError =

@@ -114,12 +114,15 @@ model VideoAsset {
 
   storageBucket    String       @map("storage_bucket")
   storageKey       String       @unique @map("storage_key")
-
   etag             String?      @map("etag")
 
   status           UploadStatus @default(CREATED)
   createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
   uploadedAt       DateTime?    @map("uploaded_at")
+
+  failedAt         DateTime?    @map("failed_at")
+  lastError        String?      @db.Text @map("last_error")
 
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

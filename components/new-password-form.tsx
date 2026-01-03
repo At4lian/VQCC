@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { Suspense, useState, useTransition } from "react"
 import { useForm } from "react-hook-form"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 import { FormError } from "@/components/form-error"
 import { FormSuccess } from "@/components/form-success"
 
-export function NewPasswordForm() {
+function NewPasswordFormContent() {
   const searchParams = useSearchParams()
   const token = searchParams.get("token")
 
@@ -101,5 +101,13 @@ export function NewPasswordForm() {
         </form>
       </Form>
     </AuthCard>
+  )
+}
+
+export function NewPasswordForm() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <NewPasswordFormContent />
+    </Suspense>
   )
 }

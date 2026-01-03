@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { BeatLoader } from "react-spinners"
@@ -11,7 +11,7 @@ import { AuthCard } from "@/components/auth-card"
 import { FormError } from "@/components/form-error"
 import { FormSuccess } from "@/components/form-success"
 
-export function NewVerificationForm() {
+function NewVerificationFormContent() {
   const searchParams = useSearchParams()
   const token = searchParams.get("token")
 
@@ -73,5 +73,13 @@ export function NewVerificationForm() {
         <FormError message={error} />
       </div>
     </AuthCard>
+  )
+}
+
+export function NewVerificationForm() {
+  return (
+    <Suspense fallback={<BeatLoader />}>
+      <NewVerificationFormContent />
+    </Suspense>
   )
 }
