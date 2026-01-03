@@ -2,9 +2,10 @@
 import { NextResponse } from "next/server";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { s3 } from "@/lib/s3";
+import { env } from "@/lib/env";
 
 export async function GET() {
-  const Bucket = process.env.S3_BUCKET_NAME!;
+  const Bucket = env.S3_BUCKET_NAME;
   try {
     await s3.send(new HeadBucketCommand({ Bucket }));
     return NextResponse.json({ ok: true, bucket: Bucket });

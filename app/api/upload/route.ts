@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
+import { randomUUID } from "crypto";
 import { s3 } from "@/lib/s3";
 import { db } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { rateLimitOrThrow } from "@/lib/uploadRateLimit";
+import { env } from "@/lib/env";
 
 
 const InitSchema = z.object({
@@ -72,24 +74,21 @@ if (uploadingCount >= maxConcurrent) {
     return NextResponse.json({ error: `File too large (max ${MAX_SIZE} bytes).` }, { status: 400 });
   }
 
-  const bucket = process.env.S3_BUCKET_NAME!;
+  const bucket = env.S3_BUCKET_NAME;
+  const videoId = randomUUID();
+  const key = `videos/${userId}/${videoId}/${safeFilename(body.filename)}`;
+
   const video = await db.videoAsset.create({
     data: {
+      id: videoId,
       userId,
       originalFileName: body.filename,
       contentType: body.contentType,
       fileSizeBytes: BigInt(body.size),
       storageBucket: bucket,
       status: "UPLOADING",
-      storageKey: "", // doplníme hned po create
+      storageKey: key,
     },
-  });
-
-  const key = `videos/${userId}/${video.id}/${safeFilename(body.filename)}`;
-
-  await db.videoAsset.update({
-    where: { id: video.id },
-    data: { storageKey: key },
   });
 
   const presigned = await createPresignedPost(s3, {
@@ -98,9 +97,13 @@ if (uploadingCount >= maxConcurrent) {
     Expires: 60,
     Fields: {
       key,
+      "Content-Type": body.contentType,
       success_action_status: "201",
     },
-    Conditions: [["content-length-range", 1, MAX_SIZE]],
+    Conditions: [
+      ["content-length-range", 1, MAX_SIZE],
+      ["eq", "$Content-Type", body.contentType],
+    ],
   });
 
 

@@ -1,0 +1,215 @@
+**1) Technologie (stack)**
+
+**Frontend / UI**
+
+* **Next.js (App Router, React 18)** – frontend i lehký backend (API routes) běžící na Vercelu.
+* **React 18 + TypeScript** – komponentový UI stack, typová bezpečnost napříč appkou.
+* **Tailwind CSS + shadcn/ui** – utilitní styling + komponentová knihovna pro rychlé budování konzistentního UI (buttons, dialogs, forms…).
+* **Form stack** – React Hook Form + Zod (validace schémat ve `features/*/schemas.ts` a `lib/validation.ts`).
+* **Grafy / tabulky** – knihovna pro grafy (např. Recharts) + vlastní datová tabulka (`components/data-table`) pro analýzy, usage, audit log.
+
+**Backend / API (SaaS vrstva)**
+
+* **Next.js API routes (serverless functions)** – auth, upload URL, CRUD nad VideoAsset/AnalysisJob, billing, webhooks.
+* **Node.js runtime na Vercel** – škálovatelný edge/backend pro krátké requesty (do ~10 s).
+* **Vlastní `lib/*` služby** – `lib/auth.ts`, `lib/saas.ts`, `lib/storage/*`, `lib/queue/*` jako infrastrukturní vrstva nad DB, storage a frontou.
+
+**Databáze + ORM**
+
+* **PostgreSQL (Neon)** – managed cloud DB optimalizovaná pro serverless (scale-to-zero, branching), hlavní zdroj pravdy pro usery, joby, usage, billing.
+* **Prisma ORM** – typově bezpečný přístup k DB, generovaný client (`lib/db.ts`) nad `schema.prisma`.
+* **Datový model** – entity `User`, `VideoAsset`, `AnalysisJob`, `Issue`, `AnalysisReport`, `SubscriptionPlan`, `Subscription`, `UsageRecord`, `Notification`, `WebhookEndpoint` atd.
+
+**Storage & CDN**
+
+* **S3-kompatibilní objektové úložiště** – primárně **AWS S3** v MVP pro ukládání videí a generovaných reportů, přístup přes presigned URL.
+* Volitelně **Bunny.net Storage** nebo **Wasabi** jako levnější varianta / CDN pro servírování reportů a náhledů.
+* Abstrakce ve vrstvě `lib/storage/*` – `client.ts`, `presigned.ts`, `paths.ts` pro snadnou změnu providera.
+
+**Fronta & worker infrastruktura**
+
+* **Fronta úloh** – SQS/Redis-like queue (v návrhu explicitně AWS SQS nebo jiná), použitá pro předávání `AnalysisJob` workerům.
+* **QC Worker** – samostatná služba v Dockeru (`worker/`), běžící na GPU instanci (např. AWS EC2 G5 s NVIDIA A10).
+* **FFmpeg + ffprobe** – hlavní nástroj pro analýzu videa (blackdetect, freezedetect, silencedetect, ebur128, signalstats…).
+* **Python / Node ecosystem** – QC skripty nad FFmpeg (Python wrappery typu ffmpeg-python, scikit-video, OpenCV, pymediainfo) + Node orchestrace workeru.
+
+**Auth & security**
+
+* **NextAuth.js (Auth.js)** – OAuth + email/password auth; modely `User`, `Account`, `VerificationToken`, 2FA tokeny.
+* **2FA a bezpečnost** – `TwoFactorToken`, `TwoFactorConfirmation`, lockout mechanika (`failedLoginAttempts`, `lockedUntil`).
+* **Role & permissions** – enum `UserRole`, field `role`, helpery v `lib/permissions.ts` + `middleware.ts` pro guardy.
+* **Audit log** – model `AuditLog` pro logování citlivých akcí (login, upload, billing, změny účtu).
+
+**Billing & subscription**
+
+* **Stripe** – subscription billing, Checkout/Portal, webhooks v `app/api/billing/*`.
+* **Subscription model** – `SubscriptionPlan`, `Subscription`, `UsageRecord` pro limity (minuty, videa, concurrent jobs) a jejich enforcement v `features/billing` + `features/usage`.
+
+**Notifikace & integrace**
+
+* **Email provider (SMTP/API)** – přes `lib/email.ts` odesíláme transactional e-maily (verify, reset, analysis done, billing).
+* **In-app notifications** – model `Notification` + `NotificationPreference` + UI `features/notifications`.
+* **Webhooky** – `WebhookEndpoint` + `app/api/webhooks/user` pro push eventů k zákazníkům.
+
+**DevOps, monitoring, testy**
+
+* **Vercel** – hosting Next.js frontendu + API, build & deploy pipeline.
+* **AWS (nebo podobný cloud)** – GPU worker, S3, queue, CloudWatch logging/metrics.
+* **GitHub Actions** – CI/CD (`.github/workflows/ci.yml`, `deploy.yml` – lint, testy, build, deploy).
+* **Test stack** – Jest/Vitest pro unit, Playwright/Cypress pro e2e (`tests/unit`, `tests/integration`, `tests/e2e`).
+
+---
+
+**2) Flow dat – přehledný tok od uploadu po report a billing**
+
+```txt
+1) Uživatel & auth
+──────────────────
+[User browser]
+   |
+   | 1. přístup na landing, registrace / login
+   v
+[Next.js + NextAuth (Vercel)]
+   |
+   | 2. po úspěšném loginu načteme User + Subscription/Usage z Postgres
+   v
+[Neon Postgres (Prisma: User, Subscription, UsageRecord)]
+```
+
+```txt
+2) Upload videa & založení VideoAsset
+─────────────────────────────────────
+[User browser: dashboard /videos]
+   |
+   | 3. klik na "New analysis" → vybere soubor + QC preset
+   v
+[API: POST /api/upload]
+   |
+   | 4. server vygeneruje presigned URL (lib/storage/presigned.ts)
+   |    + vytvoří záznam VideoAsset(status=uploaded?) v DB
+   v
+[Storage (S3/Bunny/Wasabi)] <--- 5. přímý upload souboru z browseru
+   ^
+   |
+[Neon Postgres: VideoAsset]  (userId, storagePath, metadata pokud známe)
+```
+
+```txt
+3) Založení AnalysisJob & zařazení do fronty
+────────────────────────────────────────────
+[User browser: confirm "Run QC"]
+   |
+   | 6. request na API: POST /api/analyses
+   v
+[Next.js API: /api/analyses]
+   |
+   | 7. v DB založí AnalysisJob (status=QUEUED, reference na VideoAsset, QCPreset)
+   |    + zaktualizuje UsageRecord (rezervace minut / job slotu)
+   | 8. pushne message do queue (SQS/Redis) s jobId
+   v
+[Queue: "qc-jobs" topic]
+```
+
+```txt
+4) Worker: stažení videa a QC analýza
+─────────────────────────────────────
+[QC Worker (GPU, Docker, AWS EC2)]
+   ^
+   | 9. worker čte z queue → získá jobId
+   |
+[Neon Postgres]
+   |
+   | 10. načte AnalysisJob + VideoAsset (storagePath, QCPreset thresholds)
+   |     nastaví status=RUNNING, startedAt
+   v
+[Storage (S3)]
+   |
+   | 11. stáhne video soubor
+   v
+[FFmpeg / Python QC skripty]
+   |
+   | 12. běh filtrů:
+   |    - blackdetect → black frames/sekvence
+   |    - freezedetect → freeze framy
+   |    - silencedetect → dlouhé ticho
+   |    - ebur128 → integrated loudness, true peak
+   |    - ffprobe / mediainfo → metadata formátu
+   |    → výstup: raw logs + strukturovaný JSON (rawMetricsJson)
+   v
+[Worker: parsers/metrics-builder]
+   |
+   | 13. parsuje logy → generuje Issues (IssueType, severity, timecodeIn/Out, extraDataJson)
+   |     spočítá agregace: blackFrameCount, freezeFrameCount, overallResult (PASS/FAIL/WARNING)
+   v
+[Neon Postgres]
+   |
+   | 14. uloží:
+   |     - AnalysisJob (status=COMPLETED nebo FAILED, overallResult,
+   |       integratedLoudnessLufs, maxPeakDb, ... , finishedAt)
+   |     - Issue[] z QC
+   |     - optional AnalysisReport row (pokud rovnou generujeme report soubor)
+   v
+[Storage (S3): /reports/{jobId}.html/pdf]
+   (pokud se report rendruje do souboru)
+```
+
+```txt
+5) Notifikace a UI update
+─────────────────────────
+[Neon Postgres]
+   |
+   | 15. trigger/business logika:
+   |     - vytvoření Notification (ANALYSIS_COMPLETED nebo ANALYSIS_FAILED)
+   |     - fan-out na WebhookEndpoint (pokud user chce webhook)
+   v
+[Notification kanály]
+   • Email: lib/email.ts → e-mail "Your QC report is ready"
+   • In-app: UI dotazuje /api/notifications nebo SSE/polling
+   • Webhook: POST na URL klienta s payloadem (jobId, result, summary)
+   |
+   | 16. front-end (dashboard /analyses, /reports/[jobId]) periodicky polluje
+   |     nebo používá SWR/React Query → zjistí, že job je COMPLETE
+   v
+[Next.js dashboard]
+   |
+   | 17. stránka /reports/[jobId] si přes API stáhne:
+   |     - AnalysisJob (overview)
+   |     - Issues[] (detailní seznam)
+   |     - volitelně HTML/PDF report (download link)
+   v
+[User browser: UI s PASS/FAIL + seznamem chyb + timecody]
+```
+
+```txt
+6) Billing & usage enforcement
+──────────────────────────────
+[API /api/analyses] / [Worker] / [Stripe webhooks]
+   |
+   | 18. při vytvoření jobu:
+   |     - kontrola plánu a limitů (config/plans.ts, limits.ts)
+   |     - záznam/inkrement UsageRecord (minutesUsed, videosUsed)
+   |
+   | 19. Stripe webhook (/api/webhooks/stripe):
+   |     - update Subscription (status, currentPeriodStart/End)
+   |     - případné přepnutí planId na User
+   v
+[Neon Postgres: Subscription, UsageRecord, User.planId]
+   |
+   | 20. lib/saas.ts + middleware:
+   |     - při novém uploadu/analýze blokuje akce, pokud user překročil limity
+   |       → UI zobrazí paywall / upgrade dialog (features/billing)
+```
+
+```txt
+7) Audit & logování
+───────────────────
+[Každá důležitá akce (login, upload, job creation, billing change)]
+   |
+   | 21. zapisujeme AuditLog (eventType, userId, metadataJson, timestamp)
+   v
+[Neon Postgres: AuditLog]
+   |
+   | 22. admin UI (/dashboard/admin/audit-log) umožní filtrovat a řešit incidenty
+```
+
+Tohle je end-to-end pipeline: od kliknutí v UI → upload → fronta → GPU worker s FFmpeg → záznam výsledků v DB → notifikace a report v UI + billing/usage aktualizace.

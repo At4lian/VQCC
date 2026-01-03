@@ -101,6 +101,7 @@ enum UploadStatus {
   UPLOADING
   UPLOADED
   FAILED
+  CANCELED
   DELETED
 }
 

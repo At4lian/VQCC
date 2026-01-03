@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -14,6 +14,8 @@ type UploadState =
   | "error"
   | "canceled";
 
+const CANCEL_MSG = "Upload canceled";
+
 export default function UploadFilePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -23,6 +25,20 @@ export default function UploadFilePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  // držíme videoId mimo React state, aby bylo okamžitě dostupné v catch/handlers
+  const videoIdRef = useRef<string | null>(null);
+
+  // rozlišení "uživatel klikl Cancel" vs. "něco upload abortnulo samo"
+  const cancelRequestedRef = useRef(false);
+
+  const resetLocalUi = () => {
+    setState("idle");
+    setProgress(0);
+    setErrorMsg(null);
+    cancelRequestedRef.current = false;
+    videoIdRef.current = null;
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -37,12 +53,11 @@ export default function UploadFilePage() {
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
+
     const file = e.dataTransfer.files[0];
     if (file) {
       setSelectedFile(file);
-      setState("idle");
-      setProgress(0);
-      setErrorMsg(null);
+      resetLocalUi();
     }
   }, []);
 
@@ -50,30 +65,61 @@ export default function UploadFilePage() {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      setState("idle");
-      setProgress(0);
-      setErrorMsg(null);
+      resetLocalUi();
     }
   };
 
   const handleClearFile = (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // zruš probíhající upload
     if (xhrRef.current) xhrRef.current.abort();
     xhrRef.current = null;
 
     setSelectedFile(null);
-    setState("idle");
-    setProgress(0);
-    setErrorMsg(null);
+    resetLocalUi();
   };
 
-  const handleCancel = () => {
+  const markFailedBestEffort = async (reason: string) => {
+    const videoId = videoIdRef.current;
+    if (!videoId) return;
+
+    // best-effort: neblokuj UI, ignoruj chyby
+    await fetch("/api/upload/fail", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoId, reason }),
+    }).catch(() => {});
+  };
+
+  const markCanceledBestEffort = async () => {
+    const videoId = videoIdRef.current;
+    if (!videoId) return;
+
+    await fetch("/api/upload/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoId }),
+    }).catch(() => {});
+  };
+
+  const handleCancel = async () => {
+    // cancel může dávat smysl jen při uploadingu
+    if (state !== "uploading") return;
+
+    cancelRequestedRef.current = true;
+
+    // 1) Abort XHR
     if (xhrRef.current) {
       xhrRef.current.abort();
       xhrRef.current = null;
-      setState("canceled");
-      setErrorMsg(null);
     }
+
+    // 2) Řekni backendu "cancel" (best-effort)
+    await markCanceledBestEffort();
+
+    setState("canceled");
+    setErrorMsg(null);
   };
 
   const handleSend = async () => {
@@ -82,6 +128,9 @@ export default function UploadFilePage() {
     setErrorMsg(null);
     setProgress(0);
     setState("preparing");
+
+    cancelRequestedRef.current = false;
+    videoIdRef.current = null;
 
     try {
       // 1) init -> získej presigned POST
@@ -101,6 +150,8 @@ export default function UploadFilePage() {
       }
 
       const { videoId, upload } = await initRes.json();
+      videoIdRef.current = videoId;
+
       const { url, fields } = upload;
 
       // 2) upload -> přímo do S3 s progress
@@ -108,6 +159,12 @@ export default function UploadFilePage() {
 
       const formData = new FormData();
       for (const [k, v] of Object.entries(fields)) formData.append(k, v as string);
+
+      // pokud backend nepřidal Content-Type do fields, přidej ho ty (ale jen jednou)
+      if (!("Content-Type" in fields) && selectedFile.type) {
+        formData.append("Content-Type", selectedFile.type);
+      }
+
       formData.append("file", selectedFile);
 
       await new Promise<void>((resolve, reject) => {
@@ -129,7 +186,7 @@ export default function UploadFilePage() {
         };
 
         xhr.onerror = () => reject(new Error("S3 upload network error"));
-        xhr.onabort = () => reject(new Error("Upload canceled"));
+        xhr.onabort = () => reject(new Error(CANCEL_MSG));
 
         xhr.send(formData);
       });
@@ -137,7 +194,7 @@ export default function UploadFilePage() {
       xhrRef.current = null;
       setProgress(100);
 
-      // 3) complete -> DB status UPLOADED
+      // 3) complete -> DB status UPLOADED (tady už backend dělá HeadObject verifikaci)
       setState("completing");
 
       const completeRes = await fetch("/api/upload/complete", {
@@ -152,12 +209,59 @@ export default function UploadFilePage() {
       }
 
       setState("done");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
-      setState(err?.message === "Upload canceled" ? "canceled" : "error");
-      setErrorMsg(err?.message ?? "Unknown error");
+      // po úspěchu vyčisti ref, ať se omylem nepošle fail
+      videoIdRef.current = null;
+      cancelRequestedRef.current = false;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
+
+      // pokud to bylo explicitní zrušení
+      if (message === CANCEL_MSG || cancelRequestedRef.current) {
+        setState("canceled");
+        setErrorMsg(null);
+        // cancel endpoint už voláme v handleCancel; kdyby k abortu došlo jinak, zkus i tak cancel
+        await markCanceledBestEffort();
+        return;
+      }
+
+      // jinak je to fail -> zapiš do DB (best-effort)
+      await markFailedBestEffort(message);
+
+      setState("error");
+      setErrorMsg(message);
+    } finally {
+      xhrRef.current = null;
     }
   };
+
+  // Best-effort: když uživatel zavře tab / refreshne stránku během uploadu,
+  // zkusíme "fail" poslat přes sendBeacon (není garantované, ale pomáhá).
+  useEffect(() => {
+    const onPageHide = () => {
+      const videoId = videoIdRef.current;
+      if (!videoId) return;
+      if (state !== "preparing" && state !== "uploading") return;
+
+      try {
+        const payload = JSON.stringify({
+          videoId,
+          reason: "Page closed during upload",
+        });
+
+        // sendBeacon posílá POST a snaží se doručit i při zavírání stránky
+        navigator.sendBeacon(
+          "/api/upload/fail",
+          new Blob([payload], { type: "application/json" })
+        );
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [state]);
 
   const statusLabel = (() => {
     switch (state) {
@@ -168,7 +272,7 @@ export default function UploadFilePage() {
       case "uploading":
         return `Nahrávám… ${progress}%`;
       case "completing":
-        return "Ukládám stav…";
+        return "Ověřuji upload a ukládám stav…";
       case "done":
         return "Hotovo ✅";
       case "canceled":

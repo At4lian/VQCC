@@ -1,0 +1,242 @@
+. - kořen repozitáře škálovatelné SaaS aplikace VQCC v Next.js
+
+├─ app/ - routy, layouty a API handlery App Routeru
+│  ├─ layout.tsx - root layout (HTML skeleton, theme, providery, toasty)
+│  ├─ page.tsx - veřejný landing (pitch, CTA „Upload → QC report“)
+│  ├─ (marketing)/ - skupina veřejných marketingových stránek
+│  │  ├─ layout.tsx - layout pro marketing (navbar, footer, cookie bar)
+│  │  ├─ page.tsx - alternativní landing / hero sekce
+│  │  ├─ pricing/page.tsx - pricing tabulka podle SubscriptionPlan
+│  │  ├─ features/page.tsx - přehled funkcí (black/freezy/loudness atd.)
+│  │  └─ docs/ - jednoduchá dokumentace a FAQ
+│  │     ├─ layout.tsx - layout dokumentace
+│  │     ├─ index/page.tsx - index nápovědy
+│  │     └─ qc-presets/page.tsx - vysvětlení QC presetů a limitů
+│  ├─ (auth)/ - skupina rout vyžadujících „public“ layout pro auth
+│  │  ├─ layout.tsx - minimal layout bez sidebaru (logo + panel)
+│  │  ├─ sign-in/page.tsx - přihlášení (email/heslo, OAuth, 2FA)
+│  │  ├─ sign-up/page.tsx - registrace + výběr startovacího plánu
+│  │  ├─ reset-password/page.tsx - žádost o reset hesla
+│  │  └─ verify-email/page.tsx - potvrzení e-mailu / magic link
+│  ├─ (dashboard)/ - hlavní privátní aplikace po přihlášení
+│  │  ├─ layout.tsx - dashboard shell (sidebar, topbar, org/plan switcher)
+│  │  ├─ page.tsx - přehled: poslední analýzy, usage, CTA „New analysis“
+│  │  ├─ videos/ - práce s VideoAsset (upload, seznam, detail)
+│  │  │  ├─ page.tsx - seznam videí s filtrováním a stránkováním
+│  │  │  └─ [videoId]/page.tsx - detail videa, metadata, související analýzy
+│  │  ├─ analyses/ - přehled AnalysisJob a jejich stavů
+│  │  │  ├─ page.tsx - historie analýz (statusy, preset, result)
+│  │  │  └─ [jobId]/page.tsx - detail analýzy včetně Issues a grafů
+│  │  ├─ reports/ - interaktivní QC reporty
+│  │  │  └─ [jobId]/page.tsx - „human-friendly“ report s timekódy a PASS/FAIL
+│  │  ├─ settings/ - uživatelské a účtové nastavení
+│  │  │  ├─ layout.tsx - společný layout pro settings sekce
+│  │  │  ├─ profile/page.tsx - jméno, firma, země, jazyk UI
+│  │  │  ├─ security/page.tsx - heslo, 2FA, sessions, login log
+│  │  │  ├─ notifications/page.tsx - NotificationPreference a kanály
+│  │  │  ├─ api-keys/page.tsx - API klíče, rotace, scopes
+│  │  │  └─ webhooks/page.tsx - správa WebhookEndpoint a event typů
+│  │  ├─ billing/page.tsx - subscription, limity, faktury, upgrade/downgrade
+│  │  ├─ usage/page.tsx - detailnější UsageRecord (minuty, videa, storage)
+│  │  ├─ presets/page.tsx - výběr a customizace QCPreset pro účet
+│  │  └─ admin/ - administrace pro interní adminy
+│  │     ├─ page.tsx - admin dashboard (souhrnná metrika)
+│  │     ├─ users/page.tsx - správa uživatelů, rolí a lockoutů
+│  │     ├─ plans/page.tsx - správa SubscriptionPlan a jejich parametrů
+│  │     ├─ jobs/page.tsx - monitor fronty AnalysisJob (debug, retry, cancel)
+│  │     └─ audit-log/page.tsx - globální AuditLog viewer s filtry
+│  ├─ api/ - HTTP API routy (REST/JSON) pro frontend i externí klienty
+│  │  ├─ auth/[...nextauth]/route.ts - NextAuth handler napojený na User/Account
+│  │  ├─ upload/route.ts - generování presigned URL + registrace VideoAsset
+│  │  ├─ videos/route.ts - list/create videí pro aktuálního uživatele
+│  │  ├─ videos/[videoId]/route.ts - detail/update/delete konkrétního videa
+│  │  ├─ analyses/route.ts - vytvoření nového AnalysisJob + list/paging
+│  │  ├─ analyses/[jobId]/route.ts - čtení detailu analýzy včetně Issues
+│  │  ├─ reports/[jobId]/download/route.ts - stažení PDF/HTML reportu
+│  │  ├─ presets/route.ts - veřejné API pro QC presety (pro UI i integrace)
+│  │  ├─ billing/checkout/route.ts - vytvoření Stripe Checkout session
+│  │  ├─ billing/portal/route.ts - přesměrování do Stripe Customer Portalu
+│  │  ├─ webhooks/stripe/route.ts - Stripe webhook pro Subscription/Billing eventy
+│  │  ├─ webhooks/worker/route.ts - callbacky z QC workeru (status, metrics)
+│  │  ├─ webhooks/user/route.ts - fan-out eventů na WebhookEndpoint uživatelů
+│  │  └─ notifications/test/route.ts - interní endpoint pro test notifikací
+│  ├─ health/route.ts - healthcheck endpoint pro monitoring
+│  ├─ sitemap.xml/route.ts - generování sitemap pro SEO
+│  └─ robots.txt/route.ts - robots.txt definice pro crawlery
+│
+├─ middleware.ts - middleware (auth gate, role/permissions, rate limit, logging)
+
+├─ components/ - sdílené UI komponenty napříč features
+│  ├─ ui/ - generované shadcn/ui primitivy (Button, Input, Dialog, atd.)
+│  ├─ layout/ - layoutové komponenty (AppShell, Sidebar, Topbar, Breadcrumbs)
+│  ├─ forms/ - formulářové abstrakce (Form, FieldWrapper, SubmitBar)
+│  ├─ charts/ - grafy (loudness over time, issue density, usage)
+│  ├─ data-table/ - generická tabulka s filtrováním, řazením a stránkováním
+│  ├─ modals/ - globální modální okna (confirm, paywall, upgrade)
+│  ├─ toasts/ - toast notifikace napojené na context/store
+│  ├─ icons/ - SVG ikony, logo a brand assety
+│  ├─ upload/ - drag&drop uploader, progress bar, queue indikátory
+│  └─ report/ - vizuální bloky QC reportu (summary cards, issue list, badges)
+
+├─ features/ - doménově orientované moduly (business logika + UI + API glue)
+│  ├─ auth/ - autentizace, autorizace a práce s sessions
+│  │  ├─ components/ - LoginForm, RegisterForm, TwoFactorForm
+│  │  ├─ lib/ - NextAuth callbacks, hesla, lockout, verifikační tokeny
+│  │  ├─ hooks.ts - client hooks (useCurrentUser, useRequireAuth)
+│  │  └─ schemas.ts - Zod schémata pro auth (signin, signup, reset)
+│  ├─ users/ - uživatelské profily a account-level nastavení
+│  │  ├─ components/ - ProfileForm, AvatarUploader, CountrySelect
+│  │  ├─ lib/ - služby pro update uživatele, změny e-mailu, lastLoginAt
+│  │  └─ hooks.ts - hooks pro načítání/aktualizaci uživatele
+│  ├─ videos/ - práce s VideoAsset (upload → metadata → vazba na joby)
+│  │  ├─ components/ - VideoList, VideoDetailPanel, DeleteVideoDialog
+│  │  ├─ lib/ - createVideoAsset, updateMetadata, duplicate detection pomocí checksum
+│  │  ├─ hooks.ts - useVideoList, useVideoDetail, useUploadVideo
+│  │  └─ validations.ts - validace uploadu (formát, délka, velikost)
+│  ├─ analysis/ - QC analýzy (AnalysisJob + Issue + metriky)
+│  │  ├─ components/ - JobStatusBadge, IssueTable, AnalysisSummaryCards
+│  │  ├─ lib/ - orchestrace vytvoření jobu, mapování metrics → Issues
+│  │  ├─ hooks.ts - useAnalysisList, useAnalysis, useAnalysisPolling
+│  │  ├─ mappers.ts - transformace rawMetricsJson na doménové objekty
+│  │  └─ serializers.ts - serializace pro API odpovědi a reporty
+│  ├─ presets/ - QC presety (QCPreset) a jejich UI/management
+│  │  ├─ components/ - PresetSelect, PresetEditor, PresetBadge
+│  │  ├─ lib/ - načítání default presetů, override per user/plan
+│  │  └─ hooks.ts - hooky pro práci s QC presety v UI
+│  ├─ reports/ - generování a rendering QC reportů (HTML/PDF/JSON)
+│  │  ├─ components/ - ReportLayout, SummarySection, IssueSection
+│  │  ├─ lib/ - buildHtmlReport, buildPdfReport, buildJsonReport
+│  │  └─ templates/ - statické šablony reportů (verze pro TV/social)
+│  ├─ billing/ - subscription, plány, limity a Stripe integrace
+│  │  ├─ components/ - PricingTable, PlanBadge, UsageProgress, UpgradeDialog
+│  │  ├─ lib/ - createSubscription, syncStripeWebhook, enforcePlanLimits
+│  │  ├─ hooks.ts - useSubscription, useUsage, useBillingPortal
+│  │  └─ invoices.ts - načítání seznamu faktur / history z Stripe
+│  ├─ usage/ - sledování využití (UsageRecord) a enforcement limitů
+│  │  ├─ lib/ - inkrementace usage po jobu, výpočet zbývajících minut
+│  │  └─ components/ - UsageSummaryPanel, OverLimitBanner
+│  ├─ notifications/ - notifikace (Notification + NotificationPreference)
+│  │  ├─ components/ - NotificationBell, NotificationList, PreferencesForm
+│  │  ├─ lib/ - odesílání e-mailů, in-app notifikace, templating
+│  │  └─ hooks.ts - useNotifications, useMarkAsRead
+│  ├─ webhooks/ - uživatelské WebhookEndpoint a doručování eventů
+│  │  ├─ components/ - WebhookList, WebhookForm, DeliveryLogTable
+│  │  ├─ lib/ - podpis, retry, logování doručení, filtrování event typů
+│  │  └─ hooks.ts - useWebhookEndpoints, useTestWebhook
+│  ├─ audit-log/ - auditování akcí (AuditLog) a jejich prohlížení
+│  │  ├─ components/ - AuditLogTable, FilterBar, DetailDrawer
+│  │  └─ lib/ - helpery na tvorbu logů (logUserLogin, logVideoUpload, atd.)
+│  ├─ settings/ - obecná infrastruktura pro settings sekce
+│  │  ├─ components/ - SettingsLayout, SettingsNav, SettingsSection
+│  │  └─ lib/ - registr sekcí, shared hooks, typy pro settings
+│  ├─ admin/ - admin funkce nad users, jobs, subscriptions
+│  │  ├─ components/ - AdminUserTable, PlanAdminTable, JobMonitor
+│  │  └─ lib/ - admin-only operace (impersonation, ruční změna plánu)
+│  ├─ organizations/ - připravená vrstva pro budoucí multi-tenant účty
+│  │  ├─ components/ - OrgSwitcher, OrgMembersTable (placeholder)
+│  │  └─ lib/ - helpery pro org context a přidělování rolí
+│  ├─ feature-flags/ - interní feature flags systém
+│  │  ├─ lib/ - evaluace flagů podle uživatele/plánu/AB testů
+│  │  └─ components/ - admin UI pro zapínání/vypínání funkcí
+│  └─ support/ - helpdesk, feedback a kontakt na podporu
+│     ├─ components/ - SupportForm, FeedbackWidget
+│     └─ lib/ - odesílání ticketů / feedbacku (e-mail / integrace)
+
+├─ lib/ - infrastrukturní a cross-cutting helpery
+│  ├─ db.ts - Prisma client singleton (Neon Postgres)
+│  ├─ auth.ts - getCurrentUser, server-side role/permission guardy
+│  ├─ permissions.ts - centralizovaná definice oprávnění (role + plan)
+│  ├─ env.ts - typovaná validace env proměnných (Zod)
+│  ├─ logger.ts - wrapper nad loggerem (console/remote sink)
+│  ├─ rate-limit.ts - rate limiting pro API routy a citlivé akce
+│  ├─ email.ts - odesílání e-mailů (transakční šablony, provider client)
+│  ├─ formatters.ts - formátování timecodů, dat, DB hodnot
+│  ├─ validation.ts - sdílené Zod schémata / utility pro validaci
+│  ├─ saas.ts - helpery pro SaaS logiku (kontrola limitů, paywall, gating)
+│  ├─ qc-mapping.ts - mapování raw QC metrik na AnalysisJob/Issue objekty
+│  ├─ metrics.ts - interní metriky (timings, counters) pro observabilitu
+│  ├─ storage/ - abstrakce objektového úložiště
+│  │  ├─ client.ts - factory pro StorageProvider (S3, Bunny, Wasabi, ...)
+│  │  ├─ presigned.ts - generování presigned URL pro upload/download
+│  │  └─ paths.ts - konvence pro generování cest v bucketu
+│  ├─ queue/ - abstrakce fronty pro background joby
+│  │  ├─ client.ts - klient fronty (např. SQS/Redis) pro worker orchestrace
+│  │  ├─ types.ts - typy job payloadů (analýza, report, notifikace)
+│  │  └─ dispatcher.ts - helpery na enqueue/dequeue s retry politikou
+│  ├─ worker-client.ts - klient pro komunikaci s QC worker službou
+│  ├─ i18n/ - konfigurace lokalizace a slovníky textů
+│  │  ├─ index.ts - i18n inicializace
+│  │  └─ en.ts / cs.ts - překlady UI a report textů
+│  └─ testing/ - helpery pro testy (DB seeding, test users, fixtures)
+│     ├─ db-test-client.ts - izolovaný Prisma client pro testy
+│     └─ factories.ts - factory funkce pro User/Video/Job/Issue
+
+├─ prisma/ - databázová vrstva (Prisma + migrace + seed)
+│  ├─ schema.prisma - schema s User, VideoAsset, AnalysisJob, Issue, Subscription atd.
+│  ├─ migrations/ - generované migrace pro verziování DB
+│  ├─ seed.ts - naplnění dev DB (SubscriptionPlan, QCPreset, test users/jobs)
+│  └─ README.md - poznámky k migracím, branching a workflow
+
+├─ config/ - aplikační konfigurace a konstanty
+│  ├─ app.ts - název appky, URL, podpůrné jazyky, defaultní nastavení
+│  ├─ qc-presets.ts - definice built-in QC presetů mapovaných na QCPreset
+│  ├─ plans.ts - deklarace tarifů (Starter/Pro/Agency) a feature matrix
+│  ├─ limits.ts - numerické limity per plan (minuty, videa, concurrency)
+│  ├─ worker.ts - konfigurace worker/queue (názvy front, timeouty, retrypy)
+│  ├─ security.ts - bezpečnostní policy (lockout threshold, CORS, headers)
+│  └─ feature-flags.ts - seznam feature flags a jejich defaultní hodnoty
+
+├─ types/ - sdílené TypeScript typy mimo Prisma generované
+│  ├─ global.d.ts - globální deklarace (Next image, env typy)
+│  ├─ next-auth.d.ts - augmentace NextAuth typů o role/ID/plán
+│  ├─ api.ts - common API request/response kontrakty
+│  ├─ qc.ts - doménové typy pro QC metriky, issues, grafy
+│  └─ saas.ts - typy pro tarify, usage, feature flags, billing stavy
+
+├─ public/ - statické soubory servírované Next.js
+│  ├─ logo.svg - hlavní logo VQCC
+│  ├─ favicons/ - favicony a ikony pro různé platformy
+│  ├─ illustrations/ - obrázky pro landing / empty stavy
+│  └─ email-templates/ - předkompilované HTML šablony e-mailů
+
+├─ scripts/ - utility skripty pro vývoj a ops
+│  ├─ dev.sh - convenience skript pro spuštění lokálního stacku
+│  ├─ db-migrate.ts - skript pro spuštění Prisma migrací
+│  ├─ db-seed.ts - wrapper volající prisma/seed.ts
+│  ├─ generate-report-template.ts - generování statických report šablon z designu
+│  └─ smoke-test.ts - jednoduchý e2e smoke test (health, základní API)
+
+├─ tests/ - automatizované testy
+│  ├─ unit/ - unit testy pro lib a features
+│  ├─ integration/ - integrační testy API rout a DB logiky
+│  ├─ e2e/ - end-to-end testy hlavních flow (upload → analýza → report)
+│  └─ mocks/ - sdílené mocky a factory objekty
+
+├─ worker/ - QC worker služba (samostatný proces/kontejner)
+│  ├─ src/ - zdrojové kódy workeru
+│  │  ├─ index.ts - entrypoint; čte frontu, spouští QC joby a zapisuje výsledky
+│  │  ├─ config.ts - konfigurace workeru (storage, queue, paths)
+│  │  ├─ qc/ - implementace QC pipeline nad FFmpeg a dalšími nástroji
+│  │  │  ├─ ffmpeg-runner.ts - spouštění FFmpeg příkazů a sběr logů
+│  │  │  ├─ parsers/ - parsování výstupu (blackdetect, freezedetect, silencedetect)
+│  │  │  ├─ metrics-builder.ts - sestavení rawMetricsJson pro AnalysisJob
+│  │  │  └─ tests/ - unit testy algoritmů (sample videa, očekávané issues)
+│  │  ├─ lib/ - worker-specific helpery (logging, retries, metrics)
+│  │  └─ storage.ts - stahování/nahrávání videí a reportů z objektového storage
+│  ├─ Dockerfile - definice image pro GPU worker
+│  └─ README.md - návod na lokální běh, deployment a škálování workeru
+
+├─ .github/ - CI/CD konfigurace
+│  └─ workflows/
+│     ├─ ci.yml - lint, typecheck, testy, build
+│     └─ deploy.yml - deployment Next.js appky a worker image
+
+├─ .env.example - ukázka potřebných env proměnných pro lokální vývoj
+├─ next.config.mjs - Next.js konfigurace (images, redirects, experimental flags)
+├─ package.json - závislosti a npm/yarn/pnpm skripty
+├─ tsconfig.json - TypeScript konfigurace
+├─ postcss.config.mjs - konfigurace PostCSS pro Tailwind
+├─ tailwind.config.ts - Tailwind + shadcn design tokens a theme
+├─ eslint.config.mjs - ESLint konfigurace (rules, plugins)
+├─ prettier.config.mjs - Prettier nastavení formátování
+└─ README.md - úvodní dokumentace, architektura a dev setup
