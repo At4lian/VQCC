@@ -17,9 +17,17 @@ export default auth((req) => {
   const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
   const isAuthRoute = authRoutes.includes(nextUrl.pathname)
   const isPublicRoute = publicRoutes.includes(nextUrl.pathname)
+  const isRootRoute = nextUrl.pathname === "/"
 
   if (isApiAuthRoute) {
     return
+  }
+
+  if (isRootRoute) {
+    if (isLoggedIn) {
+      return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl))
+    }
+    return Response.redirect(new URL("/auth/login", nextUrl))
   }
 
   if (isAuthRoute) {
@@ -47,4 +55,3 @@ export default auth((req) => {
 export const config = {
   matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/", "/(api|trpc)(.*)"],
 };
-
