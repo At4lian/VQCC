@@ -1,18 +1,24 @@
 import { env } from "@/lib/env"
 
-const baseAppUrl = new URL(env.NEXT_PUBLIC_APP_URL)
 const allowlistedRedirects = env.AUTH_REDIRECT_ALLOWLIST.map((value) => {
   try {
     return new URL(value)
   } catch {
-    return new URL(value, baseAppUrl)
+    return new URL(value, env.NEXT_PUBLIC_APP_URL)
   }
 })
+
+function getBaseAppUrl(baseUrl?: string) {
+  return new URL(baseUrl ?? env.NEXT_PUBLIC_APP_URL)
+}
 
 export function resolveRedirect(
   target: string | null | undefined,
   fallbackPath: string,
+  baseUrl?: string,
 ): string {
+  const baseAppUrl = getBaseAppUrl(baseUrl)
+
   if (!target) {
     return fallbackPath
   }
@@ -52,8 +58,10 @@ export function resolveRedirect(
 export function buildRedirectUrl(
   target: string | null | undefined,
   fallbackPath: string,
+  baseUrl?: string,
 ): string {
-  const resolved = resolveRedirect(target, fallbackPath)
+  const baseAppUrl = getBaseAppUrl(baseUrl)
+  const resolved = resolveRedirect(target, fallbackPath, baseUrl)
 
   if (resolved.startsWith("http")) {
     return resolved

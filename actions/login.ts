@@ -1,5 +1,6 @@
 'use server'
 import { AuthError } from "next-auth"
+import { headers } from "next/headers"
 
 import { signIn } from "@/auth"
 import { getUserByEmail } from "@/data/user"
@@ -102,7 +103,11 @@ export async function login(
   }
 
   try {
-    const redirectTo = buildRedirectUrl(callbackUrl, DEFAULT_LOGIN_REDIRECT)
+    const headersList = headers()
+    const host = headersList.get("x-forwarded-host") ?? headersList.get("host")
+    const proto = headersList.get("x-forwarded-proto") ?? "https"
+    const baseUrl = host ? `${proto}://${host}` : undefined
+    const redirectTo = buildRedirectUrl(callbackUrl, DEFAULT_LOGIN_REDIRECT, baseUrl)
 
     await signIn('credentials', {
       email,

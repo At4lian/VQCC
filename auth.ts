@@ -105,7 +105,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         return new URL(url, baseUrl).toString()
       }
 
-      return buildRedirectUrl(url, DEFAULT_LOGIN_REDIRECT)
+      return buildRedirectUrl(url, DEFAULT_LOGIN_REDIRECT, baseUrl)
     },
   },
   adapter: PrismaAdapter(db),

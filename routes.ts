@@ -6,7 +6,6 @@
 export const publicRoutes = [
   '/',
   '/auth/new-verification',
-  "/waitlist/unsubscribe",
 ]
 
 /**
@@ -41,7 +40,6 @@ export const apiPublicPrefixes = [
   "/api/internal",      // worker token auth
   "/api/upload",        // (pokud chceš vyjmout z middleware – optional)
   "/api/analyses",      // (optional)
-  "/api/waitlist",
 ];
 
 
