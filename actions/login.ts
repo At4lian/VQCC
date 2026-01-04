@@ -114,7 +114,7 @@ export async function login(
   }
 
   try {
-    const headersList = headers()
+    const headersList = await headers()
     const host = headersList.get("x-forwarded-host") ?? headersList.get("host")
     const proto = headersList.get("x-forwarded-proto") ?? "https"
     const baseUrl = host ? `${proto}://${host}` : undefined
