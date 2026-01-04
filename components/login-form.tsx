@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useTransition } from "react"
 import { useForm } from "react-hook-form"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 
 import { login } from "@/actions/login"
@@ -34,6 +34,7 @@ export function LoginForm() {
 
 function LoginFormContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const callbackUrl = searchParams.get("callbackUrl")
   const urlError =
     searchParams.get("error") === "OAuthAccountNotLinked"
@@ -73,6 +74,15 @@ function LoginFormContent() {
 
           if (data?.twoFactor) {
             setShowTwoFactor(true)
+          }
+
+          if (data?.redirectTo) {
+            if (data.redirectTo.startsWith("http")) {
+              window.location.assign(data.redirectTo)
+              return
+            }
+
+            router.push(data.redirectTo)
           }
         })
         .catch(() => setError("Something went wrong!"))

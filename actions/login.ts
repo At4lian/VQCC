@@ -19,6 +19,17 @@ import { db } from "@/lib/prisma"
 import { getTwoFactorConfirmationByUserId } from "@/data/two-factor-confirmation"
 import { buildRedirectUrl } from "@/lib/safe-redirect"
 
+function mapAuthError(code: string) {
+  switch (code) {
+    case "CredentialsSignin":
+      return "Invalid credentials!"
+    case "AccessDenied":
+      return "Access denied."
+    default:
+      return "Something went wrong."
+  }
+}
+
 export async function login(
   values: LoginSchema,
   callbackUrl?: string | null
@@ -103,17 +114,31 @@ export async function login(
   }
 
   try {
-    const headersList = await headers()
+    const headersList = headers()
     const host = headersList.get("x-forwarded-host") ?? headersList.get("host")
     const proto = headersList.get("x-forwarded-proto") ?? "https"
     const baseUrl = host ? `${proto}://${host}` : undefined
     const redirectTo = buildRedirectUrl(callbackUrl, DEFAULT_LOGIN_REDIRECT, baseUrl)
 
-    await signIn('credentials', {
+    const redirectUrl = await signIn('credentials', {
       email,
       password,
+      redirect: false,
       redirectTo,
     })
+
+    if (typeof redirectUrl === "string") {
+      const parsed = new URL(redirectUrl, baseUrl ?? redirectTo)
+      const error = parsed.searchParams.get("error")
+
+      if (error) {
+        return { error: mapAuthError(error) }
+      }
+
+      return { redirectTo: parsed.toString() }
+    }
+
+    return { redirectTo }
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) { 
