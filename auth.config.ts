@@ -43,7 +43,7 @@ if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
   )
 }
 
-const secureCookies = env.NODE_ENV === "production"
+const secureCookies = new URL(env.NEXT_PUBLIC_APP_URL).protocol === "https:"
 const baseCookieOptions = {
   httpOnly: true as const,
   sameSite: "lax" as const,
