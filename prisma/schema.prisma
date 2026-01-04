@@ -191,3 +191,31 @@ model AnalysisJob {
   @@map("analysis_jobs")
 }
 
+
+
+
+/* WAITLIST PHASE */
+
+enum WaitlistStatus {
+  ACTIVE
+  UNSUBSCRIBED
+}
+
+model WaitlistSubscriber {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  status         WaitlistStatus @default(ACTIVE)
+  token          String         @unique
+
+  createdAt      DateTime       @default(now())
+  welcomeSentAt  DateTime?
+  launchSentAt   DateTime?
+  unsubscribedAt DateTime?
+
+  source         String?
+  ip             String?
+  userAgent      String?
+
+  @@map("waitlist_subscribers")
+}
+
